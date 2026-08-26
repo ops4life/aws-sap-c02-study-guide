@@ -297,7 +297,7 @@ aws budgets create-budget --account-id 111111111111 --budget file://budget.json 
 |---|---|---|
 | VPCs per Region | 5 (soft limit) | Adjustable via Service Quotas |
 | Transit Gateway attachments per TGW | 5,000 | Hard limit |
-| Direct Connect connections per Region per account | 50 (soft) | Adjustable |
+| Direct Connect dedicated connections per location | 10 | Fixed (non-adjustable); Direct Connect gateways per account (200) and LAGs per Region (10) are separate quotas |
 | Lambda concurrent executions per Region | 1,000 (soft, account-level) | Adjustable; use reserved/provisioned concurrency to guarantee capacity for critical functions |
 | S3 bucket count per account | 100 (soft, can request up to 1,000+) | Buckets themselves have virtually unlimited objects |
 | RDS DB instances per Region | 40 (soft) | Adjustable |
