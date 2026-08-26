@@ -2,10 +2,10 @@
 class StudyGuideApp {
     constructor() {
         this.sections = [
-            { id: 'section-1', file: '01_Organizational_Complexity.md', title: 'Design Solutions for Organizational Complexity' },
-            { id: 'section-2', file: '02_New_Solutions.md', title: 'Design for New Solutions' },
-            { id: 'section-3', file: '03_Continuous_Improvement.md', title: 'Continuous Improvement for Existing Solutions' },
-            { id: 'section-4', file: '04_Migration_and_Modernization.md', title: 'Accelerate Workload Migration and Modernization' }
+            { id: 'section-1', file: '01_Organizational_Complexity.md', title: 'Design Solutions for Organizational Complexity', weight: 26 },
+            { id: 'section-2', file: '02_New_Solutions.md', title: 'Design for New Solutions', weight: 29 },
+            { id: 'section-3', file: '03_Continuous_Improvement.md', title: 'Continuous Improvement for Existing Solutions', weight: 25 },
+            { id: 'section-4', file: '04_Migration_and_Modernization.md', title: 'Accelerate Workload Migration and Modernization', weight: 20 }
         ];
 
         this.currentSection = null;
@@ -14,11 +14,13 @@ class StudyGuideApp {
         this.progress = this.loadProgress();
         this.notes = this.loadNotes();
         this.sidebarCollapsed = this.loadSidebarState();
+        this.theme = this.loadTheme();
 
         this.init();
     }
 
     init() {
+        this.applyTheme();
         this.setupEventListeners();
         this.renderSidebar();
         this.updateProgressDashboard();
@@ -35,6 +37,13 @@ class StudyGuideApp {
             this.sidebarCollapsed = !this.sidebarCollapsed;
             this.saveSidebarState();
             this.toggleSidebar();
+        });
+
+        // Theme toggle
+        document.getElementById('toggle-theme').addEventListener('click', () => {
+            this.theme = this.theme === 'dark' ? 'light' : 'dark';
+            this.saveTheme();
+            this.applyTheme();
         });
 
         // Notes panel toggle
@@ -55,6 +64,22 @@ class StudyGuideApp {
         document.getElementById('topic-complete-checkbox').addEventListener('change', (e) => {
             if (this.currentSection && this.currentTopic) {
                 this.toggleTopicCompletion(this.currentSection, this.currentTopic, e.target.checked);
+            }
+        });
+
+        // Prev/Next topic navigation
+        document.getElementById('prev-topic').addEventListener('click', () => this.stepTopic(-1));
+        document.getElementById('next-topic').addEventListener('click', () => this.stepTopic(1));
+
+        // Search
+        const searchInput = document.getElementById('search-input');
+        searchInput.addEventListener('input', () => this.handleSearchInput());
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') this.closeSearchDropdown();
+        });
+        document.addEventListener('click', (e) => {
+            if (!document.getElementById('header-search').contains(e.target)) {
+                this.closeSearchDropdown();
             }
         });
     }
@@ -97,6 +122,20 @@ class StudyGuideApp {
         localStorage.setItem('sapc02-sidebar-collapsed', this.sidebarCollapsed.toString());
     }
 
+    loadTheme() {
+        return localStorage.getItem('sapc02-theme') || 'light';
+    }
+
+    saveTheme() {
+        localStorage.setItem('sapc02-theme', this.theme);
+    }
+
+    applyTheme() {
+        document.documentElement.setAttribute('data-theme', this.theme);
+        document.getElementById('theme-icon-dark').style.display = this.theme === 'dark' ? 'none' : 'block';
+        document.getElementById('theme-icon-light').style.display = this.theme === 'dark' ? 'block' : 'none';
+    }
+
     // Render Sidebar Navigation
     async renderSidebar() {
         const nav = document.getElementById('section-nav');
@@ -119,6 +158,7 @@ class StudyGuideApp {
         }
 
         this.updateProgressDashboard();
+        this.renderHomeDashboard();
 
         // Apply saved sidebar state
         this.toggleSidebar();
@@ -203,6 +243,7 @@ class StudyGuideApp {
             this.progress[topicKey] = !currentState;
             this.saveProgress();
             this.updateSidebarProgress();
+            this.renderHomeDashboard();
 
             // Update the footer checkbox if this topic is currently loaded
             const topicIdentifier = topic.subtitle || topic.title;
@@ -283,6 +324,66 @@ class StudyGuideApp {
         return topics;
     }
 
+    // Flatten all topics across sections, in nav order (for prev/next + search)
+    flatTopics() {
+        const flat = [];
+        this.sections.forEach(section => {
+            const topics = this.sectionData[section.id]?.topics || [];
+            topics.forEach(topic => {
+                flat.push({ sectionId: section.id, sectionTitle: section.title, topic });
+            });
+        });
+        return flat;
+    }
+
+    findFlatIndex(sectionId, topic) {
+        const topicIdentifier = topic.subtitle || topic.title;
+        return this.flatTopics().findIndex(f =>
+            f.sectionId === sectionId && (f.topic.subtitle || f.topic.title) === topicIdentifier
+        );
+    }
+
+    stepTopic(delta) {
+        if (!this.currentSection || !this.currentTopic) return;
+        const currentTopicObj = this.sectionData[this.currentSection]?.topics.find(
+            t => (t.subtitle || t.title) === this.currentTopic
+        );
+        if (!currentTopicObj) return;
+
+        const flat = this.flatTopics();
+        const idx = this.findFlatIndex(this.currentSection, currentTopicObj);
+        const nextIdx = idx + delta;
+        if (nextIdx < 0 || nextIdx >= flat.length) return;
+
+        const next = flat[nextIdx];
+        this.loadTopic(next.sectionId, next.topic, null);
+        this.highlightActiveTopic(next.sectionId, next.topic);
+    }
+
+    highlightActiveTopic(sectionId, topic) {
+        document.querySelectorAll('.topic-item').forEach(el => el.classList.remove('active'));
+        const topicIdentifier = topic.subtitle || topic.title;
+        document.querySelectorAll('.topic-item').forEach(el => {
+            const topicText = el.querySelector('span')?.textContent;
+            if (topicText === topicIdentifier) {
+                el.classList.add('active');
+            }
+        });
+    }
+
+    updateTopicNavButtons() {
+        const flat = this.flatTopics();
+        const currentTopicObj = this.sectionData[this.currentSection]?.topics.find(
+            t => (t.subtitle || t.title) === this.currentTopic
+        );
+        const idx = currentTopicObj ? this.findFlatIndex(this.currentSection, currentTopicObj) : -1;
+
+        const prevBtn = document.getElementById('prev-topic');
+        const nextBtn = document.getElementById('next-topic');
+        prevBtn.disabled = idx <= 0;
+        nextBtn.disabled = idx === -1 || idx >= flat.length - 1;
+    }
+
     // Load Topic Content
     loadTopic(sectionId, topic, event) {
         this.currentSection = sectionId;
@@ -321,11 +422,14 @@ class StudyGuideApp {
         document.querySelectorAll('.topic-item').forEach(el => el.classList.remove('active'));
         if (event) {
             event.target.closest('.topic-item').classList.add('active');
+        } else {
+            this.highlightActiveTopic(sectionId, topic);
         }
 
         // Show topic footer
         const footer = document.getElementById('topic-footer');
         footer.style.display = 'flex';
+        this.updateTopicNavButtons();
 
         // Update checkbox
         const checkbox = document.getElementById('topic-complete-checkbox');
@@ -394,6 +498,7 @@ class StudyGuideApp {
 
         // Update sidebar
         this.updateSidebarProgress();
+        this.renderHomeDashboard();
 
         // Auto-advance to next topic if marking as complete
         if (completed) {
@@ -403,18 +508,7 @@ class StudyGuideApp {
 
     // Auto-advance to next topic
     advanceToNextTopic(currentSectionId, currentTopicTitle) {
-        // Get all topics from all sections in order
-        const allTopics = [];
-
-        this.sections.forEach(section => {
-            const topics = this.sectionData[section.id]?.topics || [];
-            topics.forEach(topic => {
-                allTopics.push({
-                    sectionId: section.id,
-                    topic: topic
-                });
-            });
-        });
+        const allTopics = this.flatTopics();
 
         // Find current topic index
         let currentIndex = -1;
@@ -433,16 +527,7 @@ class StudyGuideApp {
             // Small delay for smooth transition
             setTimeout(() => {
                 this.loadTopic(nextTopic.sectionId, nextTopic.topic, null);
-
-                // Update active state in sidebar
-                document.querySelectorAll('.topic-item').forEach(el => el.classList.remove('active'));
-                const nextTopicIdentifier = nextTopic.topic.subtitle || nextTopic.topic.title;
-                document.querySelectorAll('.topic-item').forEach(el => {
-                    const topicText = el.querySelector('span')?.textContent;
-                    if (topicText === nextTopicIdentifier) {
-                        el.classList.add('active');
-                    }
-                });
+                this.highlightActiveTopic(nextTopic.sectionId, nextTopic.topic);
             }, 500);
         }
     }
@@ -531,6 +616,108 @@ class StudyGuideApp {
         document.getElementById('total-topics').textContent = totalTopics;
     }
 
+    // Home Dashboard
+    renderHomeDashboard() {
+        const welcome = document.querySelector('.welcome');
+        if (!welcome) return; // not on home screen right now
+
+        const existing = welcome.querySelector('.dashboard-grid');
+        if (existing) existing.remove();
+
+        const grid = document.createElement('div');
+        grid.className = 'dashboard-grid';
+
+        this.sections.forEach((section, i) => {
+            const topics = this.sectionData[section.id]?.topics || [];
+            const progress = this.getSectionProgress(section.id, topics);
+            const percent = progress.total ? Math.round((progress.completed / progress.total) * 100) : 0;
+            const isDone = progress.total > 0 && progress.completed === progress.total;
+            const resumeLabel = progress.completed === 0 ? 'Start' : (isDone ? 'Review' : 'Continue');
+
+            const card = document.createElement('div');
+            card.className = `dashboard-card ${isDone ? 'done' : ''}`;
+            card.innerHTML = `
+                <div class="dashboard-card-top">
+                    <span class="section-number">${i + 1}</span>
+                    <span class="dashboard-card-weight">${section.weight}% of exam</span>
+                </div>
+                <h3 class="dashboard-card-title">${section.title}</h3>
+                <div class="dashboard-card-bar"><div class="dashboard-card-bar-inner" style="width:${percent}%"></div></div>
+                <div class="dashboard-card-bottom">
+                    <span class="dashboard-card-progress">${progress.completed}/${progress.total} topics</span>
+                    <span class="dashboard-card-resume">${resumeLabel} →</span>
+                </div>
+            `;
+            card.addEventListener('click', () => {
+                const firstIncomplete = topics.find(t => !this.progress[this.getTopicKey(section.id, t.subtitle || t.title)]);
+                if (firstIncomplete) {
+                    this.loadTopic(section.id, firstIncomplete, null);
+                    this.highlightActiveTopic(section.id, firstIncomplete);
+                } else if (topics[0]) {
+                    this.loadTopic(section.id, topics[0], null);
+                    this.highlightActiveTopic(section.id, topics[0]);
+                } else {
+                    this.loadSection(section.id);
+                }
+            });
+            grid.appendChild(card);
+        });
+
+        welcome.appendChild(grid);
+    }
+
+    // Search
+    handleSearchInput() {
+        const query = document.getElementById('search-input').value.trim().toLowerCase();
+        const dropdown = document.getElementById('search-dropdown');
+        dropdown.innerHTML = '';
+
+        if (query.length < 2) {
+            dropdown.classList.remove('open');
+            return;
+        }
+
+        const results = this.flatTopics()
+            .filter(f => {
+                const label = (f.topic.subtitle || f.topic.title).toLowerCase();
+                return label.includes(query) || f.sectionTitle.toLowerCase().includes(query);
+            })
+            .slice(0, 8);
+
+        if (results.length === 0) {
+            dropdown.innerHTML = `<div class="search-empty">No topics match "${this.escapeHtml(document.getElementById('search-input').value)}"</div>`;
+        } else {
+            results.forEach(result => {
+                const item = document.createElement('div');
+                item.className = 'search-result';
+                const label = result.topic.subtitle || result.topic.title;
+                item.innerHTML = `
+                    <div class="search-result-label">${this.escapeHtml(label)}</div>
+                    <div class="search-result-section">${this.escapeHtml(result.sectionTitle)}</div>
+                `;
+                item.addEventListener('click', () => {
+                    this.loadTopic(result.sectionId, result.topic, null);
+                    this.highlightActiveTopic(result.sectionId, result.topic);
+                    this.closeSearchDropdown();
+                    document.getElementById('search-input').value = '';
+                });
+                dropdown.appendChild(item);
+            });
+        }
+
+        dropdown.classList.add('open');
+    }
+
+    closeSearchDropdown() {
+        document.getElementById('search-dropdown').classList.remove('open');
+    }
+
+    escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
     // Notes Management
     loadTopicNotes(topicKey) {
         const notesTextarea = document.getElementById('notes-textarea');
@@ -601,6 +788,7 @@ class StudyGuideApp {
                 </div>
             </div>
         `;
+        this.renderHomeDashboard();
 
         // Hide topic footer
         document.getElementById('topic-footer').style.display = 'none';
@@ -610,6 +798,7 @@ class StudyGuideApp {
 
         // Remove active state from all topics
         document.querySelectorAll('.topic-item').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.section-header').forEach(el => el.classList.remove('active-section'));
 
         // Scroll to top
         contentEl.scrollTop = 0;
