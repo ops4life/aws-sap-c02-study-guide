@@ -71,6 +71,9 @@ body {
 }
 
 .sidebar-header h1 {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
     font-size: 1.5rem;
     font-weight: 600;
     letter-spacing: -0.3px;
@@ -81,6 +84,12 @@ body {
 
 .sidebar-header h1:hover {
     color: var(--text-secondary);
+}
+
+.brand-icon {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
 }
 
 /* Progress Circle */
@@ -113,7 +122,7 @@ body {
 
 .circle {
     fill: none;
-    stroke: var(--primary-color);
+    stroke: var(--accent-color);
     stroke-width: 2.5;
     stroke-linecap: round;
     animation: progress 1s ease-out forwards;
@@ -194,8 +203,8 @@ body {
 }
 
 .section-header.active-section .section-number {
-    background-color: white;
-    color: var(--primary-color);
+    background-color: var(--accent-color);
+    color: var(--primary-dark);
 }
 
 .section-header.active-section .section-progress,
@@ -219,7 +228,7 @@ body {
 }
 
 .section-title-text:hover {
-    background: rgba(59, 130, 246, 0.1);
+    background: rgba(255, 153, 0, 0.12);
     transform: translateX(2px);
 }
 
@@ -384,8 +393,8 @@ body {
 
 .breadcrumb-link:hover {
     background: var(--hover-bg);
-    color: var(--primary-color);
-    box-shadow: 0 0 10px rgba(59, 130, 246, 0.2);
+    color: var(--accent-color);
+    box-shadow: 0 0 10px rgba(255, 153, 0, 0.2);
 }
 
 .breadcrumb-separator {
@@ -616,14 +625,14 @@ body {
 }
 
 .study-content a {
-    color: var(--primary-color);
+    color: var(--primary-dark);
     text-decoration: none;
-    border-bottom: 1px solid transparent;
-    transition: border-color 0.2s ease;
+    border-bottom: 1px solid var(--accent-color);
+    transition: color 0.2s ease;
 }
 
 .study-content a:hover {
-    border-bottom-color: var(--primary-color);
+    color: var(--accent-color);
 }
 
 .study-content hr {
@@ -729,7 +738,7 @@ body {
     width: 14px;
     height: 14px;
     cursor: pointer;
-    accent-color: var(--primary-color);
+    accent-color: var(--accent-color);
     border-radius: 2px;
 }
 
