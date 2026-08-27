@@ -15,6 +15,7 @@ class StudyGuideApp {
         this.notes = this.loadNotes();
         this.sidebarCollapsed = this.loadSidebarState();
         this.theme = this.loadTheme();
+        this.activeFilter = 'all';
 
         this.init();
     }
@@ -58,18 +59,40 @@ class StudyGuideApp {
         // Save notes
         document.getElementById('save-notes').addEventListener('click', () => {
             this.saveCurrentNotes();
+            this.updateSidebarProgress();
+            this.applyNavFilter();
         });
 
-        // Topic completion checkbox
+        // Topic / Section completion checkbox
         document.getElementById('topic-complete-checkbox').addEventListener('change', (e) => {
-            if (this.currentSection && this.currentTopic) {
-                this.toggleTopicCompletion(this.currentSection, this.currentTopic, e.target.checked);
+            if (this.currentSection) {
+                if (this.currentTopic) {
+                    this.toggleTopicCompletion(this.currentSection, this.currentTopic, e.target.checked);
+                } else {
+                    this.toggleSectionCompletion(this.currentSection, e.target.checked);
+                }
             }
         });
 
         // Prev/Next topic navigation
         document.getElementById('prev-topic').addEventListener('click', () => this.stepTopic(-1));
         document.getElementById('next-topic').addEventListener('click', () => this.stepTopic(1));
+
+        // Expand / Collapse all
+        const expandBtn = document.getElementById('expand-all-sections');
+        if (expandBtn) {
+            expandBtn.addEventListener('click', () => {
+                document.querySelectorAll('.section-header').forEach(h => h.classList.add('expanded'));
+                document.querySelectorAll('.topic-list').forEach(l => l.classList.add('expanded'));
+            });
+        }
+        const collapseBtn = document.getElementById('collapse-all-sections');
+        if (collapseBtn) {
+            collapseBtn.addEventListener('click', () => {
+                document.querySelectorAll('.section-header').forEach(h => h.classList.remove('expanded'));
+                document.querySelectorAll('.topic-list').forEach(l => l.classList.remove('expanded'));
+            });
+        }
 
         // Search
         const searchInput = document.getElementById('search-input');
@@ -139,6 +162,7 @@ class StudyGuideApp {
     // Render Sidebar Navigation
     async renderSidebar() {
         const nav = document.getElementById('section-nav');
+        nav.innerHTML = '';
 
         for (let i = 0; i < this.sections.length; i++) {
             const section = this.sections[i];
@@ -167,21 +191,29 @@ class StudyGuideApp {
     createSectionElement(section, topics, number) {
         const sectionDiv = document.createElement('div');
         sectionDiv.className = 'section-item';
+        sectionDiv.dataset.sectionId = section.id;
 
         const completed = this.getSectionProgress(section.id, topics);
         const isCompleted = completed.completed === completed.total && completed.total > 0;
+        const percent = completed.total > 0 ? Math.round((completed.completed / completed.total) * 100) : 0;
 
         // Section header
         const header = document.createElement('div');
         header.className = `section-header ${isCompleted ? 'completed' : ''}`;
         header.innerHTML = `
-            <div class="section-title">
-                <span class="section-number">${number}</span>
-                <span class="section-title-text">${section.title}</span>
+            <div class="section-header-top">
+                <div class="section-title">
+                    <span class="section-number">Domain ${number}</span>
+                    <span class="section-weight">${section.weight}%</span>
+                </div>
+                <div class="section-header-right">
+                    <span class="section-progress">${completed.completed}/${completed.total}</span>
+                    <span class="expand-icon">›</span>
+                </div>
             </div>
-            <div>
-                <span class="section-progress">${completed.completed}/${completed.total}</span>
-                <span class="expand-icon">›</span>
+            <div class="section-title-text" title="${section.title}">${section.title}</div>
+            <div class="section-mini-bar">
+                <div class="section-mini-bar-fill" style="width: ${percent}%"></div>
             </div>
         `;
 
@@ -194,25 +226,15 @@ class StudyGuideApp {
             topicList.appendChild(topicEl);
         });
 
-        // Section title click - load section overview
-        const titleText = header.querySelector('.section-title-text');
-        titleText.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.loadSection(section.id);
-        });
-
-        // Expand icon click - toggle expansion
-        header.querySelector('.expand-icon').addEventListener('click', (e) => {
-            e.stopPropagation();
-            header.classList.toggle('expanded');
-            topicList.classList.toggle('expanded');
-        });
-
-        // Section progress click - toggle expansion
-        header.querySelector('.section-progress').addEventListener('click', (e) => {
-            e.stopPropagation();
-            header.classList.toggle('expanded');
-            topicList.classList.toggle('expanded');
+        // Section header click logic
+        header.addEventListener('click', (e) => {
+            if (e.target.classList.contains('section-title-text')) {
+                e.stopPropagation();
+                this.loadSection(section.id);
+            } else {
+                header.classList.toggle('expanded');
+                topicList.classList.toggle('expanded');
+            }
         });
 
         sectionDiv.appendChild(header);
@@ -225,14 +247,20 @@ class StudyGuideApp {
         const topicDiv = document.createElement('div');
         const topicKey = this.getTopicKey(sectionId, topic.subtitle || topic.title);
         const isCompleted = this.progress[topicKey] || false;
+        const hasNotes = Boolean(this.notes[topicKey] && this.notes[topicKey].trim().length > 0);
 
         // Display subtitle if available, otherwise show title
         const displayText = topic.subtitle || topic.title;
 
         topicDiv.className = `topic-item ${isCompleted ? 'completed' : ''}`;
+        topicDiv.dataset.topicKey = topicKey;
+        topicDiv.dataset.completed = isCompleted;
+        topicDiv.dataset.hasNotes = hasNotes;
+
         topicDiv.innerHTML = `
             <div class="topic-checkbox" data-topic-key="${topicKey}"></div>
-            <span>${displayText}</span>
+            <span class="topic-title-span">${displayText}</span>
+            ${hasNotes ? '<span class="note-badge" title="Has notes">📝</span>' : ''}
         `;
 
         // Make checkbox clickable to toggle completion
@@ -344,20 +372,31 @@ class StudyGuideApp {
     }
 
     stepTopic(delta) {
+        const flat = this.flatTopics();
+        if (flat.length === 0) return;
+
+        // If on section page without a selected topic
+        if (this.currentSection && !this.currentTopic) {
+            const sectionTopics = this.sectionData[this.currentSection]?.topics || [];
+            if (sectionTopics.length > 0) {
+                const targetTopic = delta > 0 ? sectionTopics[0] : sectionTopics[sectionTopics.length - 1];
+                this.loadTopic(this.currentSection, targetTopic, null);
+            }
+            return;
+        }
+
         if (!this.currentSection || !this.currentTopic) return;
         const currentTopicObj = this.sectionData[this.currentSection]?.topics.find(
             t => (t.subtitle || t.title) === this.currentTopic
         );
         if (!currentTopicObj) return;
 
-        const flat = this.flatTopics();
         const idx = this.findFlatIndex(this.currentSection, currentTopicObj);
         const nextIdx = idx + delta;
         if (nextIdx < 0 || nextIdx >= flat.length) return;
 
         const next = flat[nextIdx];
         this.loadTopic(next.sectionId, next.topic, null);
-        this.highlightActiveTopic(next.sectionId, next.topic);
     }
 
     highlightActiveTopic(sectionId, topic) {
@@ -417,6 +456,7 @@ class StudyGuideApp {
         const contentEl = document.getElementById('study-content');
         const html = marked.parse(topic.content);
         contentEl.innerHTML = html;
+        this.addCopyButtonsToCodeBlocks(contentEl);
 
         // Update active state in sidebar
         document.querySelectorAll('.topic-item').forEach(el => el.classList.remove('active'));
@@ -429,6 +469,11 @@ class StudyGuideApp {
         // Show topic footer
         const footer = document.getElementById('topic-footer');
         footer.style.display = 'flex';
+        const checkboxLabel = footer.querySelector('.checkbox-label');
+        if (checkboxLabel) {
+            checkboxLabel.style.display = 'inline-flex';
+            checkboxLabel.querySelector('span').textContent = 'Mark this topic as completed';
+        }
         this.updateTopicNavButtons();
 
         // Update checkbox
@@ -467,6 +512,7 @@ class StudyGuideApp {
         const contentEl = document.getElementById('study-content');
         const html = marked.parse(sectionContent);
         contentEl.innerHTML = html;
+        this.addCopyButtonsToCodeBlocks(contentEl);
 
         // Update active state - remove from topics, add to section
         document.querySelectorAll('.topic-item').forEach(el => el.classList.remove('active'));
@@ -479,18 +525,94 @@ class StudyGuideApp {
             sectionHeaders[sectionIndex].classList.add('active-section');
         }
 
-        // Hide topic footer (section pages don't have completion checkboxes)
+        // Show topic footer with completion checkbox and navigation buttons (consistent with topic pages)
         const footer = document.getElementById('topic-footer');
-        footer.style.display = 'none';
+        footer.style.display = 'flex';
+        const checkboxLabel = footer.querySelector('.checkbox-label');
+        if (checkboxLabel) {
+            checkboxLabel.style.display = 'inline-flex';
+            checkboxLabel.querySelector('span').textContent = 'Mark this section as completed';
+        }
 
-        // Close notes panel
-        document.getElementById('notes-panel').classList.remove('open');
+        const sectionKey = `section-complete-${sectionId}`;
+        const checkbox = document.getElementById('topic-complete-checkbox');
+        checkbox.checked = this.progress[sectionKey] || false;
+
+        // Update nav buttons for section view
+        const prevBtn = document.getElementById('prev-topic');
+        const nextBtn = document.getElementById('next-topic');
+        const sectionTopics = this.sectionData[sectionId]?.topics || [];
+        const firstTopicOfSection = sectionTopics[0];
+        const firstIdx = firstTopicOfSection ? this.findFlatIndex(sectionId, firstTopicOfSection) : -1;
+
+        prevBtn.disabled = firstIdx <= 0;
+        nextBtn.disabled = firstIdx === -1;
 
         // Scroll to top
         contentEl.scrollTop = 0;
     }
 
+    addCopyButtonsToCodeBlocks(container) {
+        const codeBlocks = container.querySelectorAll('pre');
+        codeBlocks.forEach(pre => {
+            if (pre.querySelector('.copy-code-btn')) return;
+
+            pre.style.position = 'relative';
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-code-btn';
+            copyBtn.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span>Copy</span>
+            `;
+
+            copyBtn.addEventListener('click', async () => {
+                const codeText = pre.querySelector('code')?.innerText || pre.innerText;
+                try {
+                    await navigator.clipboard.writeText(codeText);
+                    copyBtn.classList.add('copied');
+                    copyBtn.querySelector('span').textContent = 'Copied!';
+                    setTimeout(() => {
+                        copyBtn.classList.remove('copied');
+                        copyBtn.querySelector('span').textContent = 'Copy';
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy code block: ', err);
+                }
+            });
+
+            pre.appendChild(copyBtn);
+        });
+    }
+
     // Progress Tracking
+    toggleSectionCompletion(sectionId, completed) {
+        const topics = this.sectionData[sectionId]?.topics || [];
+        topics.forEach(topic => {
+            const topicIdentifier = topic.subtitle || topic.title;
+            const topicKey = this.getTopicKey(sectionId, topicIdentifier);
+            this.progress[topicKey] = completed;
+        });
+
+        const sectionKey = `section-complete-${sectionId}`;
+        this.progress[sectionKey] = completed;
+        this.saveProgress();
+
+        // Update sidebar
+        this.updateSidebarProgress();
+        this.renderHomeDashboard();
+
+        // Auto-advance to first topic of section if marking as complete
+        if (completed && topics.length > 0) {
+            setTimeout(() => {
+                this.loadTopic(sectionId, topics[0], null);
+            }, 400);
+        }
+    }
+
     toggleTopicCompletion(sectionId, topicTitle, completed) {
         const topicKey = this.getTopicKey(sectionId, topicTitle);
         this.progress[topicKey] = completed;
@@ -544,19 +666,49 @@ class StudyGuideApp {
         return { completed, total: topics.length };
     }
 
+    applyNavFilter() {
+        const filter = this.activeFilter;
+        document.querySelectorAll('.section-item').forEach(sectionDiv => {
+            const topics = sectionDiv.querySelectorAll('.topic-item');
+            let visibleCount = 0;
+
+            topics.forEach(topicDiv => {
+                const completed = topicDiv.dataset.completed === 'true';
+                const hasNotes = topicDiv.dataset.hasNotes === 'true';
+
+                let show = true;
+                if (filter === 'todo') show = !completed;
+                else if (filter === 'done') show = completed;
+                else if (filter === 'notes') show = hasNotes;
+
+                topicDiv.style.display = show ? 'flex' : 'none';
+                if (show) visibleCount++;
+            });
+
+            // Hide section if no visible topics under current filter
+            sectionDiv.style.display = (filter === 'all' || visibleCount > 0) ? 'block' : 'none';
+        });
+    }
+
     updateSidebarProgress() {
         // Update topic checkmarks and section progress counts
         Object.keys(this.sectionData).forEach((sectionId, index) => {
             const topics = this.sectionData[sectionId].topics;
             const progress = this.getSectionProgress(sectionId, topics);
+            const percent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
-            // Update section progress text
+            // Update section progress text & mini bar
             const sectionHeaders = document.querySelectorAll('.section-header');
             const sectionHeader = sectionHeaders[index];
             if (sectionHeader) {
                 const progressSpan = sectionHeader.querySelector('.section-progress');
                 if (progressSpan) {
                     progressSpan.textContent = `${progress.completed}/${progress.total}`;
+                }
+
+                const fillBar = sectionHeader.querySelector('.section-mini-bar-fill');
+                if (fillBar) {
+                    fillBar.style.width = `${percent}%`;
                 }
 
                 // Update completed class on section
@@ -567,24 +719,40 @@ class StudyGuideApp {
                 }
             }
 
-            // Update topic checkmarks
+            // Update topic checkmarks & note badges
             topics.forEach(topic => {
                 const topicIdentifier = topic.subtitle || topic.title;
                 const topicKey = this.getTopicKey(sectionId, topicIdentifier);
                 const isCompleted = this.progress[topicKey] || false;
+                const hasNotes = Boolean(this.notes[topicKey] && this.notes[topicKey].trim().length > 0);
 
                 document.querySelectorAll('.topic-item').forEach(topicEl => {
-                    const topicText = topicEl.querySelector('span').textContent;
-                    if (topicText === topicIdentifier) {
+                    if (topicEl.dataset.topicKey === topicKey) {
+                        topicEl.dataset.completed = isCompleted;
+                        topicEl.dataset.hasNotes = hasNotes;
+
                         if (isCompleted) {
                             topicEl.classList.add('completed');
                         } else {
                             topicEl.classList.remove('completed');
                         }
+
+                        let badge = topicEl.querySelector('.note-badge');
+                        if (hasNotes && !badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'note-badge';
+                            badge.title = 'Has notes';
+                            badge.textContent = '📝';
+                            topicEl.appendChild(badge);
+                        } else if (!hasNotes && badge) {
+                            badge.remove();
+                        }
                     }
                 });
             });
         });
+
+        this.applyNavFilter();
     }
 
     updateProgressDashboard() {
@@ -677,23 +845,57 @@ class StudyGuideApp {
             return;
         }
 
-        const results = this.flatTopics()
-            .filter(f => {
-                const label = (f.topic.subtitle || f.topic.title).toLowerCase();
-                return label.includes(query) || f.sectionTitle.toLowerCase().includes(query);
-            })
-            .slice(0, 8);
+        const queryWords = query.split(/\s+/).filter(w => w.length > 0);
+        const results = [];
 
-        if (results.length === 0) {
-            dropdown.innerHTML = `<div class="search-empty">No topics match "${this.escapeHtml(document.getElementById('search-input').value)}"</div>`;
+        this.flatTopics().forEach(f => {
+            const topicTitle = (f.topic.subtitle || f.topic.title).toLowerCase();
+            const sectionTitle = f.sectionTitle.toLowerCase();
+            const contentText = (f.topic.content || '').toLowerCase();
+            const topicKey = this.getTopicKey(f.sectionId, f.topic.subtitle || f.topic.title);
+            const userNote = (this.notes[topicKey] || '').toLowerCase();
+
+            // Match if all query words match title, section, content, or notes
+            const matchesTitle = queryWords.every(w => topicTitle.includes(w) || sectionTitle.includes(w));
+            const matchesContent = queryWords.every(w => contentText.includes(w) || topicTitle.includes(w) || sectionTitle.includes(w));
+            const matchesNote = queryWords.every(w => userNote.includes(w));
+
+            if (matchesTitle || matchesContent || matchesNote) {
+                let snippet = '';
+                if (matchesContent && !matchesTitle) {
+                    const firstWord = queryWords[0];
+                    const idx = contentText.indexOf(firstWord);
+                    if (idx !== -1) {
+                        const start = Math.max(0, idx - 30);
+                        const end = Math.min(contentText.length, idx + 60);
+                        snippet = '...' + f.topic.content.substring(start, end).replace(/[\r\n#*`]/g, ' ') + '...';
+                    }
+                } else if (matchesNote) {
+                    snippet = '📝 Note: ' + this.notes[topicKey];
+                }
+
+                results.push({
+                    sectionId: f.sectionId,
+                    sectionTitle: f.sectionTitle,
+                    topic: f.topic,
+                    snippet: snippet
+                });
+            }
+        });
+
+        const limitedResults = results.slice(0, 10);
+
+        if (limitedResults.length === 0) {
+            dropdown.innerHTML = `<div class="search-empty">No matching content found for "${this.escapeHtml(document.getElementById('search-input').value)}"</div>`;
         } else {
-            results.forEach(result => {
+            limitedResults.forEach(result => {
                 const item = document.createElement('div');
                 item.className = 'search-result';
                 const label = result.topic.subtitle || result.topic.title;
                 item.innerHTML = `
                     <div class="search-result-label">${this.escapeHtml(label)}</div>
                     <div class="search-result-section">${this.escapeHtml(result.sectionTitle)}</div>
+                    ${result.snippet ? `<div class="search-result-snippet">${this.escapeHtml(result.snippet)}</div>` : ''}
                 `;
                 item.addEventListener('click', () => {
                     this.loadTopic(result.sectionId, result.topic, null);
