@@ -14,12 +14,12 @@ This repository includes a single-page interactive study app — no build step, 
 ### Quick Start
 
 #### Option 1: GitHub Pages (Recommended)
-Visit **[duyluann.github.io/aws-sap-c02-study-guide](https://duyluann.github.io/aws-sap-c02-study-guide/)**
+Visit **[ops4life.github.io/aws-sap-c02-study-guide](https://ops4life.github.io/aws-sap-c02-study-guide/)**
 
 #### Option 2: Run Locally
 ```bash
 # Clone the repository
-git clone https://github.com/duyluann/aws-sap-c02-study-guide.git
+git clone https://github.com/ops4life/aws-sap-c02-study-guide.git
 cd aws-sap-c02-study-guide
 
 # Start a local web server (Python 3)

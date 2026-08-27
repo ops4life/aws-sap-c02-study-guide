@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A static, no-build-step study guide site for the AWS Certified Solutions Architect – Professional (SAP-C02) exam, deployed via GitHub Pages at duyluann.github.io/aws-sap-c02-study-guide. Content is four Markdown domain files rendered client-side by a vanilla-JS app.
+A static, no-build-step study guide site for the AWS Certified Solutions Architect – Professional (SAP-C02) exam, deployed via GitHub Pages at ops4life.github.io/aws-sap-c02-study-guide. Content is four Markdown domain files rendered client-side by a vanilla-JS app.
 
 ## Running locally
 
